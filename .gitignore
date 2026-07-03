@@ -7,4 +7,3 @@ server.out.log
 server.err.log
 server.log
 crawl*.log
-.claude/scheduled_tasks.lock

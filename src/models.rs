@@ -66,8 +66,11 @@ pub struct CreateMonitor {
     pub name: String,
     #[serde(rename = "type")]
     pub monitor_type: String,
+    #[serde(default)]
     pub url: Option<String>,
+    #[serde(default)]
     pub hostname: Option<String>,
+    #[serde(default)]
     pub port: Option<i64>,
     #[serde(default = "default_interval")]
     pub interval_sec: i64,
@@ -77,10 +80,15 @@ pub struct CreateMonitor {
     pub retry_interval_sec: i64,
     #[serde(default = "default_timeout")]
     pub timeout_sec: i64,
+    #[serde(default)]
     pub keyword: Option<String>,
+    #[serde(default)]
     pub expected_status: Option<i64>,
+    #[serde(default)]
     pub method: Option<String>,
+    #[serde(default)]
     pub headers: Option<String>,
+    #[serde(default)]
     pub body: Option<String>,
     #[serde(default = "default_true")]
     pub active: bool,
@@ -88,6 +96,7 @@ pub struct CreateMonitor {
     pub upside_down: bool,
     #[serde(default = "default_redirects")]
     pub max_redirects: i64,
+    #[serde(default)]
     pub notification_ids: Option<String>,
 }
 

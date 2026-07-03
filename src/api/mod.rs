@@ -56,7 +56,12 @@ async fn create_monitor(State(state): State<AppState>, Json(input): Json<CreateM
     .execute(&state.db).await;
 
     match res {
-        Ok(_) => (axum::http::StatusCode::CREATED, Json(json!({"id": id}))).into_response(),
+        Ok(_) => {
+            if input.active {
+                crate::monitors::spawn_monitor_task(&state, id.clone()).await;
+            }
+            (axum::http::StatusCode::CREATED, Json(json!({"id": id}))).into_response()
+        }
         Err(e) => (axum::http::StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))).into_response(),
     }
 }
@@ -79,12 +84,20 @@ async fn update_monitor(State(state): State<AppState>, Path(id): Path<String>, J
     .bind(input.max_redirects).bind(&input.notification_ids).bind(&id)
     .execute(&state.db).await;
     match res {
-        Ok(_) => Json(json!({"ok": true})).into_response(),
+        Ok(_) => {
+            if input.active {
+                crate::monitors::spawn_monitor_task(&state, id.clone()).await;
+            } else {
+                crate::monitors::stop_monitor_task(&state, &id).await;
+            }
+            Json(json!({"ok": true})).into_response()
+        }
         Err(e) => (axum::http::StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))).into_response(),
     }
 }
 
 async fn delete_monitor(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
+    crate::monitors::stop_monitor_task(&state, &id).await;
     let _ = sqlx::query("DELETE FROM monitors WHERE id = ?").bind(&id).execute(&state.db).await;
     let _ = sqlx::query("DELETE FROM heartbeats WHERE monitor_id = ?").bind(&id).execute(&state.db).await;
     Json(json!({"ok": true}))
@@ -92,11 +105,13 @@ async fn delete_monitor(State(state): State<AppState>, Path(id): Path<String>) -
 
 async fn pause_monitor(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     let _ = sqlx::query("UPDATE monitors SET active = 0 WHERE id = ?").bind(&id).execute(&state.db).await;
+    crate::monitors::stop_monitor_task(&state, &id).await;
     Json(json!({"ok": true}))
 }
 
 async fn resume_monitor(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     let _ = sqlx::query("UPDATE monitors SET active = 1 WHERE id = ?").bind(&id).execute(&state.db).await;
+    crate::monitors::spawn_monitor_task(&state, id).await;
     Json(json!({"ok": true}))
 }
 

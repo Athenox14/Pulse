@@ -1,6 +1,10 @@
 /target
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 server.out.log
 server.err.log
 server.log
+crawl*.log
+.claude/scheduled_tasks.lock

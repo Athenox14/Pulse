@@ -1,61 +1,64 @@
 use crate::models::*;
 use crate::state::AppState;
 use chrono::Utc;
+use rand::Rng;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
-pub async fn run_scheduler(state: AppState) {
-    loop {
-        let monitors: Vec<(String, i64)> = match sqlx::query_as::<_, (String, i64)>(
-            "SELECT id, interval_sec FROM monitors WHERE active = 1",
-        )
-        .fetch_all(&state.db)
-        .await
-        {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::error!("scheduler query failed: {e}");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                continue;
-            }
-        };
-
-        for (id, _interval) in monitors {
-            let due = {
-                let mut due_set = state.due_at.lock().await;
-                let now = tokio::time::Instant::now();
-                match due_set.get(&id) {
-                    Some(t) if *t > now => false,
-                    _ => {
-                        due_set.insert(id.clone(), now + Duration::from_secs(60));
-                        true
-                    }
-                }
-            };
-            if due {
-                let st = state.clone();
-                let mid = id.clone();
-                tokio::spawn(async move {
-                    check_and_schedule(st, mid).await;
-                });
-            }
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
+/// Spawns one long-lived task per active monitor at startup. Each task sleeps
+/// between checks instead of the whole scheduler polling the DB every second
+/// (a full-table scan per tick that scaled badly past a few hundred monitors).
+/// Startup checks are jittered across each monitor's own interval so 1000
+/// monitors don't all fire (and later re-fire, in lockstep) at once.
+pub async fn spawn_all(state: &AppState) {
+    let rows: Vec<(String, i64)> =
+        sqlx::query_as("SELECT id, interval_sec FROM monitors WHERE active = 1")
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
+    for (id, interval_sec) in rows {
+        let jitter = rand::thread_rng().gen_range(0..interval_sec.max(1) as u64);
+        spawn_monitor_task_with_delay(state, id, Duration::from_secs(jitter)).await;
     }
 }
 
-async fn check_and_schedule(state: AppState, monitor_id: String) {
-    let monitor = match fetch_monitor(&state, &monitor_id).await {
-        Some(m) => m,
-        None => return,
-    };
-    run_check(&state, &monitor).await;
-    let mut due_set = state.due_at.lock().await;
-    due_set.insert(
-        monitor_id,
-        tokio::time::Instant::now() + Duration::from_secs(monitor.interval_sec.max(1) as u64),
-    );
+pub async fn spawn_monitor_task(state: &AppState, monitor_id: String) {
+    spawn_monitor_task_with_delay(state, monitor_id, Duration::ZERO).await;
+}
+
+async fn spawn_monitor_task_with_delay(state: &AppState, monitor_id: String, delay: Duration) {
+    let mut tasks = state.tasks.lock().await;
+    if let Some(old) = tasks.remove(&monitor_id) {
+        old.abort();
+    }
+    let st = state.clone();
+    let mid = monitor_id.clone();
+    let handle = tokio::spawn(async move {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        monitor_loop(st, mid).await
+    });
+    tasks.insert(monitor_id, handle);
+}
+
+pub async fn stop_monitor_task(state: &AppState, monitor_id: &str) {
+    let mut tasks = state.tasks.lock().await;
+    if let Some(handle) = tasks.remove(monitor_id) {
+        handle.abort();
+    }
+}
+
+async fn monitor_loop(state: AppState, monitor_id: String) {
+    loop {
+        let monitor = match fetch_monitor(&state, &monitor_id).await {
+            Some(m) if m.active => m,
+            _ => return, // deleted, paused, or gone: task ends, no more DB polling for it
+        };
+        run_check(&state, &monitor).await;
+        tokio::time::sleep(Duration::from_secs(monitor.interval_sec.max(1) as u64)).await;
+    }
 }
 
 pub async fn fetch_monitor(state: &AppState, id: &str) -> Option<Monitor> {
@@ -126,7 +129,7 @@ pub async fn run_check(state: &AppState, m: &Monitor) {
 
     while attempt < max_attempts {
         let start = std::time::Instant::now();
-        let result = do_check(m).await;
+        let result = do_check(state, m).await;
         let elapsed = start.elapsed().as_millis() as i64;
         match result {
             Ok(m_ok) => {
@@ -192,9 +195,9 @@ pub async fn run_check(state: &AppState, m: &Monitor) {
     }
 }
 
-async fn do_check(m: &Monitor) -> Result<String, String> {
+async fn do_check(state: &AppState, m: &Monitor) -> Result<String, String> {
     match m.monitor_type.as_str() {
-        "http" | "keyword" | "json" => check_http(m).await,
+        "http" | "keyword" | "json" => check_http(state, m).await,
         "tcp" => check_tcp(m).await,
         "ping" => check_ping(m).await,
         "dns" => check_dns(m).await,
@@ -202,18 +205,13 @@ async fn do_check(m: &Monitor) -> Result<String, String> {
     }
 }
 
-async fn check_http(m: &Monitor) -> Result<String, String> {
+async fn check_http(state: &AppState, m: &Monitor) -> Result<String, String> {
     let url = m.url.clone().ok_or("missing url")?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(m.timeout_sec.max(1) as u64))
-        .redirect(reqwest::redirect::Policy::limited(m.max_redirects.max(0) as usize))
-        .build()
-        .map_err(|e| e.to_string())?;
     let method = m.method.clone().unwrap_or_else(|| "GET".into());
-    let req = client.request(
-        method.parse().unwrap_or(reqwest::Method::GET),
-        &url,
-    );
+    let req = state
+        .http_client
+        .request(method.parse().unwrap_or(reqwest::Method::GET), &url)
+        .timeout(Duration::from_secs(m.timeout_sec.max(1) as u64));
     let req = if let Some(body) = &m.body {
         req.body(body.clone())
     } else {

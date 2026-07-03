@@ -19,17 +19,22 @@ async fn main() -> anyhow::Result<()> {
     let pool = db::init_pool(&db_path).await?;
     let (ws_tx, _) = broadcast::channel(256);
 
+    // Each monitor hits a distinct host once per interval — keep-alive pooling
+    // never gets reused here, it just holds idle sockets in RAM for nothing.
+    let http_client = reqwest::Client::builder()
+        .pool_max_idle_per_host(0)
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()?;
+
     let state = AppState {
         db: pool,
         ws_tx,
-        due_at: Arc::new(Mutex::new(std::collections::HashMap::new())),
+        tasks: Arc::new(Mutex::new(std::collections::HashMap::new())),
         jwt_secret: Arc::new(std::env::var("PULSE_JWT_SECRET").unwrap_or_else(|_| "pulse-dev-secret".into())),
+        http_client,
     };
 
-    let scheduler_state = state.clone();
-    tokio::spawn(async move {
-        monitors::run_scheduler(scheduler_state).await;
-    });
+    monitors::spawn_all(&state).await;
 
     let app = api::router(state)
         .nest_service("/ui", ServeDir::new("ui"))

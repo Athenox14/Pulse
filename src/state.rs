@@ -2,11 +2,13 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
+use tokio::task::JoinHandle;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: SqlitePool,
     pub ws_tx: broadcast::Sender<String>,
-    pub due_at: Arc<Mutex<HashMap<String, tokio::time::Instant>>>,
+    pub tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     pub jwt_secret: Arc<String>,
+    pub http_client: reqwest::Client,
 }

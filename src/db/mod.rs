@@ -1,9 +1,19 @@
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteJournalMode, SqliteSynchronous};
 use anyhow::Result;
+use std::str::FromStr;
 
 pub async fn init_pool(path: &str) -> Result<SqlitePool> {
-    let url = format!("sqlite://{}?mode=rwc", path);
-    let pool = SqlitePoolOptions::new().max_connections(8).connect(&url).await?;
+    // WAL lets readers and the single writer run concurrently instead of
+    // locking the whole file per write; NORMAL sync skips an fsync per
+    // transaction (safe under WAL — only risks losing the last commit on an
+    // OS crash, not corruption). With 1000+ monitors writing heartbeats
+    // concurrently, the default rollback-journal mode serialized every
+    // insert and piled up waiting tasks in memory.
+    let opts = SqliteConnectOptions::from_str(&format!("sqlite://{}", path))?
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal);
+    let pool = SqlitePoolOptions::new().max_connections(8).connect_with(opts).await?;
     sqlx::query(SCHEMA).execute(&pool).await?;
     Ok(pool)
 }

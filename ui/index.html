@@ -43,7 +43,8 @@
 <div id="monitors" class="grid"></div>
 
 <script>
-const api = (p, opts) => fetch(p, opts).then(r => r.json());
+const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:3939' : '';
+const api = (p, opts) => fetch(API_BASE + p, opts).then(r => r.json());
 
 async function loadMonitors() {
   const monitors = await api('/api/monitors');
@@ -110,7 +111,8 @@ document.getElementById('createForm').addEventListener('submit', async (e) => {
   loadMonitors();
 });
 
-const ws = new WebSocket(`ws://${location.host}/ws`);
+const wsHost = location.protocol === 'file:' ? '127.0.0.1:3939' : location.host;
+const ws = new WebSocket(`ws://${wsHost}/ws`);
 ws.onmessage = () => loadMonitors();
 
 loadMonitors();

@@ -7,3 +7,4 @@ server.out.log
 server.err.log
 server.log
 crawl*.log
+.claude/

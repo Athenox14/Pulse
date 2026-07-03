@@ -1,6 +1,6 @@
 # Pulse
 
-API-first uptime and status monitoring, written in Rust (axum + sqlx/SQLite + tokio). Same feature set you'd expect from a self-hosted monitoring tool (HTTP/TCP/DNS checks, notifications, status pages), no bundled dashboard required to run it — everything is a REST/WebSocket API, with a minimal HTML page in `/ui` for manual testing.
+API-first uptime and status monitoring, written in Rust (axum + sqlx/SQLite + tokio). Same feature set you'd expect from a self-hosted monitoring tool (HTTP/TCP/DNS checks, notifications, status pages), no bundled dashboard required to run it — everything is a REST/WebSocket API.
 
 Actively used in production as the monitoring engine behind **OxaDash**, the hosting control panel from [OxalisHeberg](https://oxalisheberg.fr).
 
@@ -57,21 +57,127 @@ Env vars:
 
 ## API
 
-- `GET/POST /api/monitors`, `GET/PUT/DELETE /api/monitors/:id`
-- `POST /api/monitors/:id/pause|resume|check`
-- `GET /api/monitors/:id/heartbeats`, `GET /api/monitors/:id/uptime`
-- `GET/POST /api/notifications`, `DELETE /api/notifications/:id`
-- `GET/POST /api/status-pages`, `GET /api/status-pages/:slug` (public)
-- `GET/POST /api/maintenance`, `DELETE /api/maintenance/:id`
-- `WS /ws` — realtime heartbeat feed
+All request/response bodies are JSON. Base URL defaults to `http://localhost:3939`.
 
-## Test UI
+### Monitors
 
-Minimal dashboard at `/ui/index.html` (served statically) — add monitors, watch heartbeats live, pause/delete. Not meant for production, just to exercise the API visually.
+**`GET /api/monitors`** — list all monitors.
 
-## Not yet implemented (future work)
+**`POST /api/monitors`** — create a monitor.
 
-- Auth (users table scaffolded, no login endpoints wired yet)
-- Push-type "passive" monitors
-- Certificate expiry checks
-- 2FA, groups/tags, multi-language
+Body:
+```json
+{
+  "name": "My API",
+  "type": "http",
+  "url": "https://example.com/health",
+  "interval_sec": 60,
+  "retries": 1,
+  "retry_interval_sec": 30,
+  "timeout_sec": 10,
+  "expected_status": 200,
+  "method": "GET",
+  "headers": "{\"Authorization\": \"Bearer ...\"}",
+  "body": null,
+  "active": true,
+  "upside_down": false,
+  "max_redirects": 10,
+  "notification_ids": "[\"<notification-id>\"]"
+}
+```
+Only `name` and `type` are required; everything else has a default. `type` is one of `http`, `keyword`, `tcp`, `ping`, `dns`, `json`.
+- `keyword` also requires `"keyword": "some text"` — the check fails if the response body doesn't contain it.
+- `tcp` / `ping` use `hostname` + `port` instead of `url`.
+- `dns` uses `hostname` and resolves it, failing if there are no records.
+
+Returns `201` with `{"id": "<uuid>"}`.
+
+**`GET /api/monitors/:id`** — fetch one monitor.
+
+**`PUT /api/monitors/:id`** — update a monitor. Same body shape as create; replaces the monitor's config and restarts its check task with the new settings.
+
+**`DELETE /api/monitors/:id`** — delete a monitor and its heartbeat history.
+
+**`POST /api/monitors/:id/pause`** — stop checking (task is torn down, no more DB writes).
+
+**`POST /api/monitors/:id/resume`** — restart checking.
+
+**`POST /api/monitors/:id/check`** — force an immediate check outside the normal interval.
+
+**`GET /api/monitors/:id/heartbeats`** — last 200 heartbeats, most recent first.
+
+Response item:
+```json
+{
+  "id": "...",
+  "monitor_id": "...",
+  "status": 1,
+  "msg": "200 OK",
+  "ping_ms": 174,
+  "important": true,
+  "time": "2026-07-03T19:15:45.367708Z"
+}
+```
+`status`: `0` = down, `1` = up, `2` = pending, `3` = maintenance. `important` is true when this heartbeat's status differs from the previous one (that's also what triggers notifications).
+
+**`GET /api/monitors/:id/uptime`** — uptime ratios:
+```json
+{ "uptime_24h": 1.0, "uptime_7d": 0.998, "uptime_30d": 0.995 }
+```
+
+### Notifications
+
+**`GET /api/notifications`** — list notification channels.
+
+**`POST /api/notifications`** — create one.
+
+Body:
+```json
+{ "name": "team-discord", "type": "discord", "config": { "webhook_url": "https://discord.com/api/webhooks/..." }, "active": true }
+```
+`type` is one of `webhook`, `discord`, `slack`, `telegram`. `config` shape depends on `type`:
+- `webhook`: `{"url": "..."}` — receives a POST with `{"monitor": name, "status": "UP"|"DOWN", "msg": "..."}`
+- `discord` / `slack`: `{"webhook_url": "..."}`
+- `telegram`: `{"bot_token": "...", "chat_id": "..."}`
+
+Attach a notification to a monitor by putting its id in that monitor's `notification_ids` field (JSON array as a string, e.g. `"[\"<id>\"]"`). Notifications fire only when a monitor's status changes, not on every check.
+
+**`DELETE /api/notifications/:id`**
+
+### Status pages
+
+**`GET /api/status-pages`** — list configured status pages (admin view).
+
+**`POST /api/status-pages`**
+
+Body:
+```json
+{ "slug": "public", "title": "Service Status", "description": "Live status of our services", "monitor_ids": ["<id1>", "<id2>"], "published": true }
+```
+
+**`GET /api/status-pages/:slug`** — public endpoint (no auth), returns only published pages:
+```json
+{ "title": "Service Status", "description": "...", "monitors": [{ "id": "...", "name": "My API", "status": 1 }] }
+```
+
+### Maintenance windows
+
+**`GET /api/maintenance`** — list windows.
+
+**`POST /api/maintenance`**
+```json
+{ "title": "Scheduled DB migration", "monitor_ids": ["<id>"], "start_time": "2026-07-10T02:00:00Z", "end_time": "2026-07-10T04:00:00Z" }
+```
+
+**`DELETE /api/maintenance/:id`**
+
+### Realtime
+
+**`WS /ws`** — subscribe for live updates. Every heartbeat broadcasts:
+```json
+{ "type": "heartbeat", "data": { "id": "...", "monitor_id": "...", "status": 1, "msg": "200 OK", "ping_ms": 174, "important": true, "time": "..." } }
+```
+
+### Health
+
+**`GET /api/health`** — `{"status": "ok", "service": "pulse"}`, for load balancers / your own monitor-of-monitors.

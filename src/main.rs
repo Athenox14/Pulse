@@ -9,7 +9,6 @@ use state::AppState;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tower_http::cors::CorsLayer;
-use tower_http::services::ServeDir;
 
 fn main() -> anyhow::Result<()> {
     // I/O-bound workload (waiting on sockets, not crunching CPU) — 2 worker
@@ -46,9 +45,7 @@ async fn run() -> anyhow::Result<()> {
 
     monitors::spawn_all(&state).await;
 
-    let app = api::router(state)
-        .nest_service("/ui", ServeDir::new("ui"))
-        .layer(CorsLayer::permissive());
+    let app = api::router(state).layer(CorsLayer::permissive());
 
     let addr = std::env::var("PULSE_ADDR").unwrap_or_else(|_| "0.0.0.0:3939".to_string());
     tracing::info!("Pulse listening on {addr}");

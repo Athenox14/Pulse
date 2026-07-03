@@ -55,6 +55,10 @@ Env vars:
 - `PULSE_DB` (default `pulse.db`)
 - `PULSE_JWT_SECRET`
 
+## Releases
+
+Pushing a tag matching `v*.*.*` (e.g. `v0.2.0`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds release binaries for Linux, Windows, and macOS (x86_64 + arm64) and publishes them to a GitHub Release automatically — no manual build/upload step. Grab a prebuilt binary from the [Releases page](../../releases) instead of compiling from source if you just want to run it.
+
 ## API
 
 All request/response bodies are JSON. Base URL defaults to `http://localhost:3939`.

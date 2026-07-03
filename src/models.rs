@@ -2,40 +2,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "text")]
-pub enum MonitorType {
-    Http,
-    Tcp,
-    Ping,
-    Dns,
-    Keyword,
-    Json,
-}
-
-impl MonitorType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            MonitorType::Http => "http",
-            MonitorType::Tcp => "tcp",
-            MonitorType::Ping => "ping",
-            MonitorType::Dns => "dns",
-            MonitorType::Keyword => "keyword",
-            MonitorType::Json => "json",
-        }
-    }
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "tcp" => MonitorType::Tcp,
-            "ping" => MonitorType::Ping,
-            "dns" => MonitorType::Dns,
-            "keyword" => MonitorType::Keyword,
-            "json" => MonitorType::Json,
-            _ => MonitorType::Http,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Monitor {
     pub id: String,
@@ -119,7 +85,11 @@ pub struct Heartbeat {
 
 pub const STATUS_DOWN: i64 = 0;
 pub const STATUS_UP: i64 = 1;
+// 2 = pending, 3 = maintenance — reserved status codes, part of the API
+// contract (see README), not yet set by any code path.
+#[allow(dead_code)]
 pub const STATUS_PENDING: i64 = 2;
+#[allow(dead_code)]
 pub const STATUS_MAINTENANCE: i64 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

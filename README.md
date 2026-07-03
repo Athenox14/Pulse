@@ -53,7 +53,6 @@ cargo run --release
 Env vars:
 - `PULSE_ADDR` (default `0.0.0.0:3939`)
 - `PULSE_DB` (default `pulse.db`)
-- `PULSE_JWT_SECRET`
 
 ## Prebuilt binaries
 

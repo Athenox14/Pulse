@@ -9,6 +9,5 @@ pub struct AppState {
     pub db: SqlitePool,
     pub ws_tx: broadcast::Sender<String>,
     pub tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
-    pub jwt_secret: Arc<String>,
     pub http_client: reqwest::Client,
 }

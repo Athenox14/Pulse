@@ -1,7 +1,7 @@
 use axum::{
     extract::{ws::WebSocketUpgrade, ws::Message, Path, State},
     response::{IntoResponse, Json},
-    routing::{get, post, put, delete},
+    routing::{get, post, delete},
     Router,
 };
 use serde_json::json;

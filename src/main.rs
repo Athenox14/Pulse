@@ -39,7 +39,6 @@ async fn run() -> anyhow::Result<()> {
         db: pool,
         ws_tx,
         tasks: Arc::new(Mutex::new(std::collections::HashMap::new())),
-        jwt_secret: Arc::new(std::env::var("PULSE_JWT_SECRET").unwrap_or_else(|_| "pulse-dev-secret".into())),
         http_client,
     };
 

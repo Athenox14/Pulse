@@ -1,0 +1,6 @@
+/target
+*.db
+*.db-journal
+server.out.log
+server.err.log
+server.log

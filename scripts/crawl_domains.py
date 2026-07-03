@@ -16,6 +16,7 @@ TARGET_COUNT = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
 
 SEEDS = [
     "https://en.wikipedia.org/wiki/Main_Page",
+    "https://en.wikipedia.org/wiki/Special:Random",
     "https://news.ycombinator.com/",
     "https://github.com/trending",
     "https://www.reddit.com/",
@@ -24,6 +25,36 @@ SEEDS = [
     "https://www.wikipedia.org/",
     "https://www.w3.org/",
     "https://stackoverflow.com/questions",
+    "https://www.producthunt.com/",
+    "https://lobste.rs/",
+    "https://www.theverge.com/",
+    "https://arstechnica.com/",
+    "https://www.wired.com/",
+    "https://www.reuters.com/",
+    "https://www.nytimes.com/",
+    "https://www.theguardian.com/international",
+    "https://www.cnn.com/",
+    "https://www.npr.org/",
+    "https://en.wikipedia.org/wiki/List_of_most_popular_websites",
+    "https://en.wikipedia.org/wiki/List_of_Internet_top-level_domains",
+    "https://dmoz-odp.org/",
+    "https://www.dmoz-odp.org/Computers/",
+    "https://curlie.org/",
+    "https://awesome.re/",
+    "https://github.com/sindresorhus/awesome",
+    "https://en.wikipedia.org/wiki/Category:Internet_properties_established_in_2020",
+    "https://www.similarweb.com/top-websites/",
+    "https://moz.com/top500",
+    "https://www.alexa.com/topsites",
+    "https://www.crunchbase.com/discover/organization.companies",
+    "https://opensource.org/licenses",
+    "https://www.w3schools.com/",
+    "https://developer.mozilla.org/en-US/",
+    "https://stackshare.io/",
+    "https://www.g2.com/",
+    "https://www.capterra.com/",
+    "https://alternativeto.net/",
+    "https://www.producthunt.com/topics",
 ]
 
 HREF_RE = re.compile(r'href=["\'](https?://[^"\'>\s]+)', re.IGNORECASE)
@@ -64,11 +95,28 @@ def crawl():
     queue = deque(SEEDS)
     added = 0
 
-    while queue and len(seen_domains) < TARGET_COUNT:
+    WIKI_RANDOM = "https://en.wikipedia.org/wiki/Special:Random"
+    stall_refills = 0
+
+    while len(seen_domains) < TARGET_COUNT:
+        if not queue:
+            # Big sites often sit behind bot walls and stop yielding links;
+            # Wikipedia's random-article endpoint never runs dry and every
+            # article links out to dozens of external domains (refs, ISBNs,
+            # official sites, archive.org, etc.) so it works as an infinite
+            # source of fresh domains once the curated seed list is exhausted.
+            queue.extend([WIKI_RANDOM] * 50)
+            stall_refills += 1
+            print(f"queue drained, refilling with Wikipedia random ({stall_refills})")
+            if stall_refills > 500:
+                print("too many empty refills, giving up early")
+                break
+
         page = queue.popleft()
-        if page in visited_pages:
+        if page != WIKI_RANDOM and page in visited_pages:
             continue
-        visited_pages.add(page)
+        if page != WIKI_RANDOM:
+            visited_pages.add(page)
 
         try:
             resp = requests.get(page, headers=HEADERS, timeout=8)
@@ -89,10 +137,10 @@ def crawl():
             if len(seen_domains) >= TARGET_COUNT:
                 break
             # keep crawling breadth-first through discovered pages too
-            if len(visited_pages) < 400:
+            if len(visited_pages) < 6000:
                 queue.append(link)
 
-        time.sleep(0.2)  # be polite
+        time.sleep(0.05)  # be polite but don't crawl at a snail's pace for 10k targets
 
     print(f"Done. Added {added} new monitors, total distinct domains: {len(seen_domains)}")
 

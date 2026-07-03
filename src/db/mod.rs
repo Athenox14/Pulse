@@ -9,11 +9,16 @@ pub async fn init_pool(path: &str) -> Result<SqlitePool> {
     // OS crash, not corruption). With 1000+ monitors writing heartbeats
     // concurrently, the default rollback-journal mode serialized every
     // insert and piled up waiting tasks in memory.
+    // Small per-connection page cache (default is ~2MB/connection) and few
+    // connections: at our write rate a couple of connections is plenty, and
+    // each one held open costs real RSS just for its cache pages.
     let opts = SqliteConnectOptions::from_str(&format!("sqlite://{}", path))?
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)
-        .synchronous(SqliteSynchronous::Normal);
-    let pool = SqlitePoolOptions::new().max_connections(8).connect_with(opts).await?;
+        .synchronous(SqliteSynchronous::Normal)
+        .pragma("cache_size", "-2000") // ~2MB total per connection, not default ~2MB * pages
+        .pragma("temp_store", "memory");
+    let pool = SqlitePoolOptions::new().max_connections(3).connect_with(opts).await?;
     sqlx::query(SCHEMA).execute(&pool).await?;
     Ok(pool)
 }

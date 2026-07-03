@@ -11,8 +11,18 @@ use tokio::sync::{broadcast, Mutex};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    // I/O-bound workload (waiting on sockets, not crunching CPU) — 2 worker
+    // threads is plenty and avoids committing a stack per core for threads
+    // that would mostly sit idle.
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let db_path = std::env::var("PULSE_DB").unwrap_or_else(|_| "pulse.db".to_string());

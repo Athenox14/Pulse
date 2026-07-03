@@ -1,8 +1,37 @@
 # Pulse
 
-Uptime Kuma-style monitoring, API-first, written in Rust (axum + sqlx/SQLite + tokio).
+API-first uptime and status monitoring, written in Rust (axum + sqlx/SQLite + tokio). Same feature set you'd expect from a self-hosted monitoring tool (HTTP/TCP/DNS checks, notifications, status pages), no bundled dashboard required to run it — everything is a REST/WebSocket API, with a minimal HTML page in `/ui` for manual testing.
 
-## Features (Kuma parity)
+Actively used in production as the monitoring engine behind **OxaDash**, the hosting control panel from [OxalisHeberg](https://oxalisheberg.fr).
+
+## Why
+
+Most self-hosted monitoring tools ship as a Node.js app with a bundled SPA — fine at a small scale, but RAM and CPU climb fast once you're watching hundreds or thousands of endpoints. Pulse is built async-first in Rust specifically to stay cheap at scale: one lightweight task per monitor instead of a polling loop, a shared connection pool, WAL-mode SQLite, and no framework overhead from a frontend bundled into the same process.
+
+## Real numbers (measured, not marketing)
+
+Single instance, single core doing real work, checks running on real intervals:
+
+| Monitors active | RAM (RSS) | CPU (avg, sustained) |
+|---|---|---|
+| 1,001 | 32.6 MB | ~9s CPU accumulated per steady-state sample |
+| 10,530 | 87.9 MB | ~20% of one logical core sustained |
+
+Measured on a release build (`cargo build --release`) on Windows, `Get-Process` RSS + wall-clock CPU sampling, monitors hitting real distinct domains on 300s intervals with jittered startup to avoid thundering-herd bursts.
+
+## How it compares
+
+| Tool | Stack | Typical RAM | Notes |
+|---|---|---|---|
+| **Pulse** | Rust / tokio / SQLite | ~33 MB @ 1k monitors, ~88 MB @ 10k monitors | measured above |
+| [Uptime Kuma](https://github.com/louislam/uptime-kuma) | Node.js / SQLite | ~700 MB physical, virtual memory reported up to 21.3 GB with ~99 ping monitors | 88.6k GitHub stars; users report memory growing and struggling past ~500 monitors ([GitHub issue](https://github.com/louislam/uptime-kuma/issues/3039), [GitHub issue](https://github.com/louislam/uptime-kuma/issues/5654)) |
+| [Gatus](https://github.com/TwiN/gatus) | Go | ~10 MB idle, ~30-40 MB in use | YAML/config-as-code, no built-in DB persistence by default ([comparison source](https://openalternative.co/compare/gatus/vs/uptime-kuma)) |
+| Beszel | Go | ~10 MB | lightweight server-monitoring agent ([source](https://instapods.com/blog/best-server-monitoring-tools/)) |
+| Datadog agent | Various | ~500 MB | commercial SaaS agent, for reference ([source](https://instapods.com/blog/best-server-monitoring-tools/)) |
+
+Pulse sits closer to the Go-based lightweight tools (Gatus, Beszel) in resource usage while keeping the batteries-included feature set of Uptime Kuma (GUI-optional REST API, notifications, status pages, maintenance windows) rather than requiring YAML-only configuration.
+
+## Features
 
 - Monitor types: HTTP(s), keyword-in-body, TCP port, ping (reachability), DNS resolve
 - Configurable interval, retries, retry interval, timeout, expected status code, HTTP method/headers/body
@@ -13,12 +42,12 @@ Uptime Kuma-style monitoring, API-first, written in Rust (axum + sqlx/SQLite + t
 - Public status pages (grouped monitors, published/unpublished)
 - Maintenance windows
 - Realtime updates via WebSocket (`/ws`) broadcasting heartbeat events
-- SQLite storage, zero external services required
+- SQLite storage (WAL mode), zero external services required
 
 ## Run
 
 ```
-cargo run
+cargo run --release
 ```
 
 Env vars:

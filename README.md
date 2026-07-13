@@ -140,12 +140,41 @@ Body:
 ```
 `type` is one of `webhook`, `discord`, `slack`, `telegram`. `config` shape depends on `type`:
 - `webhook`: `{"url": "..."}` — receives a POST with `{"monitor": name, "status": "UP"|"DOWN", "msg": "..."}`
-- `discord` / `slack`: `{"webhook_url": "..."}`
+- `discord`: see below
+- `slack`: `{"webhook_url": "..."}`
 - `telegram`: `{"bot_token": "...", "chat_id": "..."}`
 
 Attach a notification to a monitor by putting its id in that monitor's `notification_ids` field (JSON array as a string, e.g. `"[\"<id>\"]"`). Notifications fire only when a monitor's status changes, not on every check.
 
+**`GET /api/notifications/:id`** — fetch one channel.
+
+**`PUT /api/notifications/:id`** — update a channel in place (same body shape as `POST`).
+
 **`DELETE /api/notifications/:id`**
+
+#### Discord embeds
+
+By default `discord` notifications render a rich embed like Uptime Kuma's — a colored title (red/green/yellow/blue for down/up/pending/maintenance), and fields for service name, URL, time, and the error message or ping:
+
+```json
+{
+  "name": "team-discord",
+  "type": "discord",
+  "config": {
+    "webhook_url": "https://discord.com/api/webhooks/...",
+    "content": "<@&123456789012345678>",
+    "username": "Pulse",
+    "avatar_url": "https://example.com/icon.png",
+    "use_embed": true
+  },
+  "active": true
+}
+```
+
+All fields except `webhook_url` are optional:
+- `content`: plain text posted above the embed, e.g. a role/`@here`/`@everyone` mention (`"<@&ROLE_ID>"`, `"@here"`). Omit for no extra text.
+- `username` / `avatar_url`: override the webhook's default name/avatar for this message.
+- `use_embed`: set to `false` to fall back to the old plain-text message (`content` only, no embed) instead of the rich embed.
 
 ### Status pages
 

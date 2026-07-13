@@ -20,7 +20,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/monitors/:id/uptime", get(get_uptime))
         .route("/api/monitors/:id/check", post(force_check))
         .route("/api/notifications", get(list_notifications).post(create_notification))
-        .route("/api/notifications/:id", delete(delete_notification))
+        .route("/api/notifications/:id", get(get_notification).put(update_notification).delete(delete_notification))
         .route("/api/status-pages", get(list_status_pages).post(create_status_page))
         .route("/api/status-pages/:slug", get(get_status_page))
         .route("/api/maintenance", get(list_maintenance).post(create_maintenance))
@@ -174,6 +174,30 @@ async fn create_notification(State(state): State<AppState>, Json(input): Json<Cr
         .execute(&state.db).await;
     match res {
         Ok(_) => (axum::http::StatusCode::CREATED, Json(json!({"id": id}))).into_response(),
+        Err(e) => (axum::http::StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))).into_response(),
+    }
+}
+
+async fn get_notification(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
+    let row = sqlx::query_as::<_, Notification>("SELECT * FROM notifications WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    match row {
+        Some(n) => Json(n).into_response(),
+        None => axum::http::StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn update_notification(State(state): State<AppState>, Path(id): Path<String>, Json(input): Json<CreateNotification>) -> impl IntoResponse {
+    let cfg = input.config.to_string();
+    let res = sqlx::query("UPDATE notifications SET name=?, type=?, config=?, active=? WHERE id=?")
+        .bind(&input.name).bind(&input.notif_type).bind(&cfg).bind(input.active).bind(&id)
+        .execute(&state.db).await;
+    match res {
+        Ok(_) => Json(json!({"ok": true})).into_response(),
         Err(e) => (axum::http::StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))).into_response(),
     }
 }

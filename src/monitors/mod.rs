@@ -191,7 +191,7 @@ pub async fn run_check(state: &AppState, m: &Monitor) {
     let _ = state.ws_tx.send(serde_json::json!({"type":"heartbeat","data": hb}).to_string());
 
     if important {
-        crate::notify::dispatch(state, m, status, &msg).await;
+        crate::notify::dispatch(state, m, status, &msg, ping_ms).await;
     }
 }
 
